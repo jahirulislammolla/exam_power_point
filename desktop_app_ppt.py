@@ -138,6 +138,7 @@ def start_generation():
 
     def worker():
         try:
+            exam_id_entry.delete(0, tk.END)
             exam_data = fetch_exam_data(exam_id)
             generate_question_answer_ppt(exam_data)
         except Exception as e:
@@ -150,13 +151,30 @@ def start_generation():
 # GUI Setup
 root = tk.Tk()
 root.title("PowerPoint Generator")
-root.geometry("400x250")
+root.geometry("400x230")
+root.resizable(False, False)  # Fixed window size
+root.configure(bg="lightblue")  # Light background color
 
-tk.Label(root, text="Enter Exam ID:").pack(pady=10)
-exam_id_entry = tk.Entry(root, width=30)
-exam_id_entry.pack(pady=5)
+# Title Label
+title_label = tk.Label(root, text="Exam ID", font=("Arial", 20, "bold"), fg="indigo",  bg="lightblue")
+title_label.pack(pady=10)
 
-generate_button = tk.Button(root, text="Generate PowerPoint", command=start_generation)
-generate_button.pack(pady=20)
+# Entry Field
+exam_id_entry = tk.Entry(root, width=20, font=("Arial", 15), bd=3)
+exam_id_entry.pack(padx=2, pady=4)
+
+# Generate Button
+generate_button = tk.Button(
+    root, 
+    text="Generate PowerPoint", 
+    font=("Arial", 12),
+    fg="white",
+    bg="indigo",  # Corrected color
+    padx=8, 
+    pady=6,
+    cursor="hand2",
+    command=start_generation
+)
+generate_button.pack(pady=16)
 
 root.mainloop()
