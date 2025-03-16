@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pptx import Presentation
+from pptx.oxml import parse_xml
+from pptx.oxml.ns import qn
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
 import requests
@@ -28,7 +30,15 @@ def generate_question_answer_ppt(exam):
     for question in exam["questions"]:
         slide = prs.slides.add_slide(slide_layout)
         title_content = f"{serial_no}. {clean_html_entities(question['title'])}"
-
+        img_link = extract_image_url(title_content)
+        offset_y = 1
+        if img_link:
+            try:
+                img_path = download_image(img_link)
+                slide.shapes.add_picture(img_path, Inches(1), Inches(2), height=Inches(3.5))
+                offset_y = 4
+            except Exception:
+                pass
         if slide.shapes.title:
             sp = slide.shapes.title
             slide.shapes._spTree.remove(sp._element)
@@ -45,42 +55,36 @@ def generate_question_answer_ppt(exam):
             p.font.size = Pt(18)
             p.alignment = PP_ALIGN.LEFT
 
+        ref_book = ""
+        if len(question["reference_books"]):
+            for ref in question["reference_books"]:
+                if "reference_book_id" in ref and "page_no" in ref:
+                    ref_book += f"[Ref: {ref['reference_book']['name']}/P-{ref['page_no']}] "
+        
         ans_p = text_frame.add_paragraph()
-        ans_p.text = f"Ans: {question.get('answer_script', '')}"
+        ans_p.text = f"Ans: {question.get('answer_script', '')} { clean_html_entities(ref_book)}"
         ans_p.font.bold = True
         ans_p.font.size = Pt(18)
         ans_p.alignment = PP_ALIGN.LEFT
 
         serial_no += 1
-        if (question.get("discussion", "") and question.get("discussion", "").strip()) or len(question["reference_books"]):
+        if (question.get("discussion", "") and question.get("discussion", "").strip()):
             discussion_slide = prs.slides.add_slide(slide_layout)
-            # Remove the title shape if it exists
             if discussion_slide.shapes.title:
                 sp = discussion_slide.shapes.title
                 discussion_slide.shapes._spTree.remove(sp._element)
                 
             discussion_frame = discussion_slide.placeholders[1].text_frame
-        # Process reference books
-        if len(question["reference_books"]):
-            ref_book = ""
-            # print(question["reference_books"])
-            for ref in question["reference_books"]:
-                if "reference_book_id" in ref and "page_no" in ref:
-                    ref_book += f"[Ref: {ref['reference_book']['name']}/P-{ref['page_no']}] "
 
-            if ref_book :
-                ref_content = ref_book
-            else:
+            if ref_book.strip() == '':
                 ref_content = question.get('reference', '') if question.get('reference', '') else ''
-                
-            ref_content = clean_html_entities(ref_content)
-            ans_p = discussion_frame.add_paragraph()
-            ans_p.text = ref_content
-            ans_p.font.bold = True
-            ans_p.font.size = Pt(18)
-            ans_p.alignment = PP_ALIGN.LEFT
+                ref_content = clean_html_entities(ref_content)
+                ans_p = discussion_frame.add_paragraph()
+                ans_p.text = ref_content
+                ans_p.font.bold = True
+                ans_p.font.size = Pt(18)
+                ans_p.alignment = PP_ALIGN.LEFT
            
-        
         if question.get("discussion", "") and question.get("discussion", "").strip():
             img_link = extract_image_url(question["discussion"])
             offset_y = 1
@@ -136,40 +140,40 @@ def start_generation():
         messagebox.showerror("Error", "Please enter an Exam ID")
         return
 
+    generate_button.config(state="disabled", text="Loading...")
+
     def worker():
         try:
-            exam_id_entry.delete(0, tk.END)
             exam_data = fetch_exam_data(exam_id)
             generate_question_answer_ppt(exam_data)
+            exam_id_entry.delete(0, tk.END)
+            messagebox.showinfo("Success", "PowerPoint generated successfully!")
         except Exception as e:
             messagebox.showerror("Error", str(e))
+        finally:
+            generate_button.config(state="normal", text="Generate PowerPoint")
 
-    # Run in a separate thread to keep the GUI responsive
     thread = threading.Thread(target=worker)
     thread.start()
 
-# GUI Setup
 root = tk.Tk()
 root.title("PowerPoint Generator")
 root.geometry("400x230")
-root.resizable(False, False)  # Fixed window size
-root.configure(bg="lightblue")  # Light background color
+root.resizable(False, False)
+root.configure(bg="lightblue")
 
-# Title Label
 title_label = tk.Label(root, text="Exam ID", font=("Arial", 20, "bold"), fg="indigo",  bg="lightblue")
 title_label.pack(pady=10)
 
-# Entry Field
 exam_id_entry = tk.Entry(root, width=20, font=("Arial", 15), bd=3)
 exam_id_entry.pack(padx=2, pady=4)
 
-# Generate Button
 generate_button = tk.Button(
     root, 
     text="Generate PowerPoint", 
     font=("Arial", 12),
     fg="white",
-    bg="indigo",  # Corrected color
+    bg="indigo",
     padx=8, 
     pady=6,
     cursor="hand2",

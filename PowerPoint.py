@@ -2,7 +2,9 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
 from pptx.dml.color import RGBColor
-# from json_data import fetch_exam_data_default
+from pptx.oxml import parse_xml
+from pptx.oxml.ns import qn
+from json_data import fetch_exam_data_default
 import requests
 import os
 import re
@@ -17,44 +19,83 @@ def fetch_exam_data(exam_id):
     else:
         raise Exception(f"Failed to fetch exam data: {response.status_code}")
 
+# Function to generate PowerPoint
 def generate_question_answer_ppt(exam):
     prs = Presentation()
-    slide_layout = prs.slide_layouts[1]  # Use Title and Content layout
+    slide_layout = prs.slide_layouts[1]  # Title and Content layout
     serial_no = 1
 
     for question in exam["questions"]:
         slide = prs.slides.add_slide(slide_layout)
         title_content = f"{serial_no}. {clean_html_entities(question['title'])}"
-
-        # Remove title placeholder if it exists
+        img_link = extract_image_url(title_content)
+        offset_y = 1
+        if img_link:
+            try:
+                img_path = download_image(img_link)
+                discussion_slide.shapes.add_picture(img_path, Inches(1), Inches(2), height=Inches(3.5))
+                offset_y = 4
+            except Exception:
+                pass
         if slide.shapes.title:
             sp = slide.shapes.title
             slide.shapes._spTree.remove(sp._element)
 
         text_frame = slide.placeholders[1].text_frame
-        
-        text_frame.top = Inches(1)
         text_frame.text = title_content
         text_frame.paragraphs[0].font.bold = True
         text_frame.paragraphs[0].font.size = Pt(22)
         text_frame.paragraphs[0].alignment = PP_ALIGN.LEFT
 
         for option in question["question_answers"]:
-            text_content = clean_html_entities(option["answer"])
             p = text_frame.add_paragraph()
-            p.text = text_content
+            p.text = clean_html_entities(option["answer"])
             p.font.size = Pt(18)
             p.alignment = PP_ALIGN.LEFT
-            
-        question_answer = f"Ans: {question.get('answer_script', '')}"
+
+        if len(question["reference_books"]):
+            ref_book = ""
+            # print(question["reference_books"])
+            for ref in question["reference_books"]:
+                if "reference_book_id" in ref and "page_no" in ref:
+                    ref_book += f"[Ref: {ref['reference_book']['name']}/P-{ref['page_no']}] "
+        
+        # Create a new shape (textbox) for the answer
+        left = Inches(1)
+        top = Inches(1)
+        width = Inches(6)
+        height = Inches(1)
+
+        # This is now a separate shape for the answer
+        answer_shape = slide.shapes.add_textbox(left, top, width, height)
+        text_frame = answer_shape.text_frame
         ans_p = text_frame.add_paragraph()
-        ans_p.text = question_answer
+        ans_p.text = "Ans: This is a separate textbox"
         ans_p.font.bold = True
         ans_p.font.size = Pt(18)
-        ans_p.alignment = PP_ALIGN.LEFT
+
+        # Now we can apply animation to the whole shape!
+        fade_xml = f"""
+        <p:anim xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+            <p:cBhvr>
+                <p:cTn id="1" dur="500" fill="hold">
+                    <p:stCondLst>
+                        <p:cond delay="0"/>
+                    </p:stCondLst>
+                </p:cTn>
+                <p:tgtEl>
+                    <p:spTgt spid="{answer_shape.shape_id}"/>
+                </p:tgtEl>
+            </p:cBhvr>
+            <p:animEffect transition="in" filter="fade"/>
+        </p:anim>
+        """
+
+        shape_element = answer_shape.element
+        shape_element.getparent().append(parse_xml(fade_xml))
         
         serial_no += 1
-        if (question.get("discussion", "") and question.get("discussion", "").strip()) or len(question["reference_books"]):
+        if (question.get("discussion", "") and question.get("discussion", "").strip()):
             discussion_slide = prs.slides.add_slide(slide_layout)
             # Remove the title shape if it exists
             if discussion_slide.shapes.title:
@@ -62,25 +103,15 @@ def generate_question_answer_ppt(exam):
                 discussion_slide.shapes._spTree.remove(sp._element)
                 
             discussion_frame = discussion_slide.placeholders[1].text_frame
-        # Process reference books
-        if len(question["reference_books"]):
-            ref_book = ""
-            # print(question["reference_books"])
-            for ref in question["reference_books"]:
-                if "reference_book_id" in ref and "page_no" in ref:
-                    ref_book += f"[Ref: {ref['reference_book']['name']}/P-{ref['page_no']}] "
 
-            if ref_book :
-                ref_content = ref_book
-            else:
+            if ref_book.strip() == '':
                 ref_content = question.get('reference', '') if question.get('reference', '') else ''
-                
-            ref_content = clean_html_entities(ref_content)
-            ans_p = discussion_frame.add_paragraph()
-            ans_p.text = ref_content
-            ans_p.font.bold = True
-            ans_p.font.size = Pt(18)
-            ans_p.alignment = PP_ALIGN.LEFT
+                ref_content = clean_html_entities(ref_content)
+                ans_p = discussion_frame.add_paragraph()
+                ans_p.text = ref_content
+                ans_p.font.bold = True
+                ans_p.font.size = Pt(18)
+                ans_p.alignment = PP_ALIGN.LEFT
            
         
         if question.get("discussion", "") and question.get("discussion", "").strip():
@@ -130,8 +161,8 @@ def download_image(url):
 if __name__ == "__main__":
     exam_id = input("Enter Exam ID: ")
     try:
-        exam_data = fetch_exam_data(exam_id)
-        # exam_data = fetch_exam_data_default()
+        # exam_data = fetch_exam_data(exam_id)
+        exam_data = fetch_exam_data_default()
         ppt_file = generate_question_answer_ppt(exam_data)
         print(f"PowerPoint generated: {ppt_file}")
     except Exception as e:
